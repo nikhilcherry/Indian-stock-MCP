@@ -17,7 +17,7 @@
         "c:\\Users\\Nikhi\\OneDrive\\Desktop\\file\\Indian-Stock-Exchange-MCP\\build\\index.js"
       ],
       "env": {
-        "ISE_API_KEY": "sk-live-ecVWXWmgQvSVDVq5v1dtdpctmSFZtpZB2IozSqOp"
+        "ISE_API_KEY": "USE YOUR KEY"
       }
     }
   }
