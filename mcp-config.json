@@ -1,0 +1,13 @@
+{
+    "mcpServers": {
+        "indian-stock-exchange": {
+            "command": "node",
+            "args": [
+                "c:\\Users\\Nikhi\\OneDrive\\Desktop\\file\\Indian-Stock-Exchange-MCP\\build\\index.js"
+            ],
+            "env": {
+                "ISE_API_KEY": "sk-live-ecVWXWmgQvSVDVq5v1dtdpctmSFZtpZB2IozSqOp"
+            }
+        }
+    }
+}

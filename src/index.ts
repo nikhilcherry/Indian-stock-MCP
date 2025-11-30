@@ -1,13 +1,45 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import * as dotenv from "dotenv";
+
+dotenv.config();
 
 const BASE_URL = "https://stock.indianapi.in";
-const USER_AGENT = "ise-app/1.0";
+const API_KEY = process.env.ISE_API_KEY;
 
-// Create server instance
+// ------------------------------
+// Helper: API Request
+// ------------------------------
+async function makeRequest(url: string): Promise<any | null> {
+  if (!API_KEY) {
+    console.error("❌ Missing ISE_API_KEY in .env");
+    return null;
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "x-api-key": API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (err) {
+    console.error("❌ API Request Failed:", err);
+    return null;
+  }
+}
+
+// ------------------------------
+// MCP Server Setup
+// ------------------------------
 const server = new McpServer({
-  name: "ISE",
+  name: "Indian-Stock-Exchange-MCP",
   version: "1.0.0",
   capabilities: {
     resources: {},
@@ -15,261 +47,177 @@ const server = new McpServer({
   },
 });
 
-// Helper function for making NWS API requests
-async function makeNWSRequest<T>(url: string): Promise<T | null> {
-  const headers = {
-    'x-api-key':<Indian Stock Exchange API Key>
-  };
-
-  try {
-    const response = await fetch(url, { headers });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return (await response.json()) as T;
-  } catch (error) {
-    console.error("Error making NWS request:", error);
-    return null;
-  }
-}
-
-
-// Register news tools
+// ------------------------------
+// 1. Get Stock News
+// ------------------------------
 server.tool(
   "get-news",
-  "Get Indian Stock Exchange News",
-  {
-  },
-  async ({}) => {
-    const stockURL = BASE_URL + '/news';
-    const stockNews = await makeNWSRequest(stockURL);
-
-    if (!stockNews) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Failed to retrieve stock news",
-          },
-        ],
-      };
-    }
-
+  "Get latest stock market news",
+  {},
+  async () => {
+    const url = `${BASE_URL}/news`;
+    const data = await makeRequest(url);
     return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(stockNews, null, 2),
-        },
-      ],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
     };
-  },
+  }
 );
 
-// 1. Stock Details Tool with Zod
+// ------------------------------
+// 2. Stock Details
+// ------------------------------
 server.tool(
   "get-stock-details",
-  "Get details for a specific stock",
-  {
-    name: z.string().describe("Name of the stock (e.g. 'Tata Steel')")
-  },
+  "Get details for a stock (e.g., 'Reliance', 'TCS')",
+  { name: z.string().describe("Stock name") },
   async ({ name }) => {
-    const stockURL = `${BASE_URL}/stock/details?name=${encodeURIComponent(name)}`;
-    const stockDetails = await makeNWSRequest(stockURL);
-
-    if (!stockDetails) {
-      return {
-        content: [{
-          type: "text",
-          text: "Failed to retrieve stock details",
-        }],
-      };
-    }
-
+    const url = `${BASE_URL}/stock?name=${encodeURIComponent(name)}`;
+    const data = await makeRequest(url);
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(stockDetails, null, 2),
-      }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
     };
   }
 );
 
-// 2. Stock Price Tool with Zod
+// ------------------------------
+// 3. Stock Price
+// ------------------------------
 server.tool(
   "get-stock-price",
-  "Get the latest stock price for a specific stock",
-  {
-    name: z.string().describe("Name of the stock (e.g. 'Reliance Industries')")
-  },
+  "Get current price of a stock",
+  { name: z.string().describe("Stock name") },
   async ({ name }) => {
-    const stockPriceURL = `${BASE_URL}/stock/price?name=${encodeURIComponent(name)}`;
-    const stockPrice = await makeNWSRequest(stockPriceURL);
+    const url = `${BASE_URL}/stock?name=${encodeURIComponent(name)}`;
+    const data = await makeRequest(url);
 
-    if (!stockPrice) {
+    if (data && data.currentPrice) {
       return {
         content: [{
-          type: "text",
-          text: "Failed to retrieve stock price",
+          type: "text", text: JSON.stringify({
+            name: data.companyName,
+            currentPrice: data.currentPrice,
+            percentChange: data.percentChange,
+            updatedAt: new Date().toISOString()
+          }, null, 2)
         }],
       };
     }
 
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(stockPrice, null, 2),
-      }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
     };
   }
 );
 
-// 3. Market News Tool with Zod
-server.tool(
-  "get-market-news",
-  "Get the latest market news",
-  {},
-  async () => {
-    const newsURL = `${BASE_URL}/market/news`;
-    const marketNews = await makeNWSRequest(newsURL);
-
-    if (!marketNews) {
-      return {
-        content: [{
-          type: "text",
-          text: "Failed to retrieve market news",
-        }],
-      };
-    }
-
-    return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(marketNews, null, 2),
-      }],
-    };
-  }
-);
-
-// 4. Stock Historical Data Tool with Zod
+// ------------------------------
+// 4. Historical Data
+// ------------------------------
 server.tool(
   "get-stock-history",
-  "Get historical data for a specific stock",
+  "Get historical data for a stock",
   {
-    name: z.string().describe("Name of the stock (e.g. 'Infosys')"),
-    period: z.string().describe("Time period (e.g. '1m', '6m', '1y')")
+    name: z.string().describe("Stock name"),
+    period: z.string().describe("Period: 1m, 6m, 1yr, 3yr, 5yr, max"),
   },
   async ({ name, period }) => {
-    const historyURL = `${BASE_URL}/stock/history?name=${encodeURIComponent(name)}&period=${encodeURIComponent(period)}`;
-    const historyData = await makeNWSRequest(historyURL);
-
-    if (!historyData) {
-      return {
-        content: [{
-          type: "text",
-          text: "Failed to retrieve historical data",
-        }],
-      };
-    }
-
+    const url = `${BASE_URL}/historical?stock_name=${encodeURIComponent(name)}&period=${encodeURIComponent(period)}&filter=default`;
+    const data = await makeRequest(url);
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(historyData, null, 2),
-      }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
     };
   }
 );
 
-// 5. Top Gainers Tool with Zod
+// ------------------------------
+// 5. Trending Stocks
+// ------------------------------
+server.tool(
+  "get-trending-stocks",
+  "Get list of trending stocks",
+  {},
+  async () => {
+    const url = `${BASE_URL}/trending`;
+    const data = await makeRequest(url);
+    return {
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+    };
+  }
+);
+
+// ------------------------------
+// 6. Top Gainers
+// ------------------------------
 server.tool(
   "get-top-gainers",
-  "Get the top gaining stocks",
+  "Get top gaining stocks",
   {},
   async () => {
-    const gainersURL = `${BASE_URL}/stock/gainers`;
-    const topGainers = await makeNWSRequest(gainersURL);
-
-    if (!topGainers) {
-      return {
-        content: [{
-          type: "text",
-          text: "Failed to retrieve top gainers",
-        }],
-      };
-    }
-
+    const url = `${BASE_URL}/stock/gainers`;
+    const data = await makeRequest(url);
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(topGainers, null, 2),
-      }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
     };
   }
 );
 
-// 6. Top Losers Tool with Zod
+// ------------------------------
+// 7. Top Losers
+// ------------------------------
 server.tool(
   "get-top-losers",
-  "Get the top losing stocks",
+  "Get top losing stocks",
   {},
   async () => {
-    const losersURL = `${BASE_URL}/stock/losers`;
-    const topLosers = await makeNWSRequest(losersURL);
-
-    if (!topLosers) {
-      return {
-        content: [{
-          type: "text",
-          text: "Failed to retrieve top losers",
-        }],
-      };
-    }
-
+    const url = `${BASE_URL}/stock/losers`;
+    const data = await makeRequest(url);
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(topLosers, null, 2),
-      }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
     };
   }
 );
 
-// 7. Stock Recommendations Tool with Zod
+// ------------------------------
+// 8. Commodities
+// ------------------------------
 server.tool(
-  "get-stock-recommendations",
-  "Get stock recommendations based on market trends",
+  "get-commodities",
+  "Get commodities market data",
   {},
   async () => {
-    const recommendationsURL = `${BASE_URL}/stock/recommendations`;
-    const stockRecommendations = await makeNWSRequest(recommendationsURL);
-
-    if (!stockRecommendations) {
-      return {
-        content: [{
-          type: "text",
-          text: "Failed to retrieve stock recommendations",
-        }],
-      };
-    }
-
+    const url = `${BASE_URL}/commodities`;
+    const data = await makeRequest(url);
     return {
-      content: [{
-        type: "text",
-        text: JSON.stringify(stockRecommendations, null, 2),
-      }],
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
     };
   }
 );
 
+// ------------------------------
+// 11. Price Shockers
+// ------------------------------
+server.tool(
+  "get-price-shockers",
+  "Get stocks with significant price movement",
+  {},
+  async () => {
+    const url = `${BASE_URL}/price_shockers`;
+    const data = await makeRequest(url);
+    return {
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+    };
+  }
+);
 
+// ------------------------------
+// Boot the MCP Server
+// ------------------------------
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("ISE MCP Server running on stdio");
+  console.error("📈 Indian Stock Exchange MCP Server running...");
 }
 
-main().catch((error) => {
-  console.error("Fatal error in main():", error);
+main().catch((err) => {
+  console.error("Fatal error:", err);
   process.exit(1);
 });
